@@ -4,12 +4,12 @@ const orders = require('../dbs/orders');
 const express = require('express');
 const { authMiddleware, sellerOnly, buyerOnly } = require('../middleware/authMiddleware');
 const router = express.Router();
-
+const mongoose = require('mongoose');
 
 // fetch user details like user name
 router.get('/', authMiddleware, async (req, res) => {
     const userid = req.user.id;
-    // console.log(userid);
+    // console.log(userid)
     try {
         const details = await profile.findOne({ _id: userid })
             .populate({
@@ -58,7 +58,53 @@ router.get('/orders', authMiddleware, buyerOnly, async (req, res) => {
         res.status(500).json({ message: "cannot fetch details" });
         console.log(error);
     }
-})
+});
+
+router.get("/earnings", authMiddleware, sellerOnly, async (req, res) => {
+    const sellerId = new mongoose.Types.ObjectId(req.user.id);
+    try {
+
+        const earnings = await orders.aggregate([
+            {
+                $unwind: "$items"
+            },
+            {
+                $lookup: {
+                    from: "products", // MongoDB collection name
+                    localField: "items.product",
+                    foreignField: "_id",
+                    as: "productDetails"
+                }
+            },
+            {
+                $unwind: "$productDetails"
+            },
+            {
+                $match: {
+                    "productDetails.createdBy": sellerId
+                }
+            },
+            {
+                $group: {
+                    _id: sellerId,
+                    totalEarnings: {
+                        $sum: {
+                            $multiply: ["$items.quantity", "$items.priceAtPurchase"]
+                        }
+                    }
+                }
+            }
+        ]);
+        console.log(earnings[0]?.totalEarnings);
+        res.status(200).json({
+            totalEarnings: earnings[0]?.totalEarnings || 0
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Error calculating earnings" });
+    }
+});
 
 
 
